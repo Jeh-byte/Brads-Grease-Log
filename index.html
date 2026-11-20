@@ -27,11 +27,13 @@
           <button data-filter="all">All</button>
           <button data-filter="due">Due</button>
           <button data-filter="today">Done today</button>
+          <button data-filter="run" id="runChip">My run</button>
         </div>
         <div class="chips small" id="sortChips">
           <span>Order:</span>
           <button data-sort="sheet">Sheet</button>
-          <button data-sort="oldest">Longest since grease</button>
+          <button data-sort="oldest">Most overdue</button>
+          <button id="pickRunBtn" class="pick" hidden>✎ Pick my run</button>
         </div>
       </div>
       <div id="unitList"></div>
@@ -44,25 +46,55 @@
       <button id="histMore" class="btn wide" hidden>Show more</button>
     </section>
 
-    <!-- Today / shift -->
+    <!-- Shift sheet -->
     <section id="tab-today" class="tab" hidden>
       <div class="daynav">
         <button id="dayPrev" class="btn icon" aria-label="Previous day">‹</button>
         <div><strong id="dayTitle"></strong><div id="daySub" class="sub"></div></div>
         <button id="dayNext" class="btn icon" aria-label="Next day">›</button>
       </div>
+
+      <div class="card" id="shiftCard">
+        <h2>Sheet details</h2>
+        <div class="seg" id="shiftType">
+          <button data-shift="day">☀️ Day</button>
+          <button data-shift="night">🌙 Night</button>
+        </div>
+        <div class="grid2">
+          <label class="field">Name<input data-sh="name" type="text" autocomplete="name"></label>
+          <label class="field">Service truck ID<input data-sh="truck" type="text" autocapitalize="characters"></label>
+        </div>
+        <p class="label">Fuel filled into the truck</p>
+        <div id="tankRows"></div>
+        <button id="addTank" class="btn small-btn">+ Add fill</button>
+        <div class="grid2">
+          <label class="field">Bulk meter start<input data-sh="meterStart" type="number" step="0.1" inputmode="decimal"></label>
+          <label class="field">Bulk meter finish<input data-sh="meterFinish" type="number" step="0.1" inputmode="decimal"></label>
+        </div>
+        <div class="calc" id="shiftCalc"></div>
+        <label class="field">Supervisor name<input data-sh="supervisor" type="text"></label>
+        <label class="field">Message<input data-sh="message" type="text"></label>
+        <label class="field">Serviceperson comments<textarea data-sh="comments" rows="2"></textarea></label>
+      </div>
+
       <div id="dayTotals" class="totals"></div>
-      <p class="hint">Same columns as the paper sheet. Swipe the table sideways.</p>
       <div class="tablewrap"><table id="dayTable"></table></div>
+      <p class="hint">Same columns as the paper sheet. Swipe the table sideways. Tap a row to change it.</p>
+      <div class="row-btns">
+        <button id="sendPic" class="btn primary">📤 Send as picture</button>
+        <button id="sendText" class="btn">💬 Send as text</button>
+      </div>
     </section>
 
     <!-- Settings -->
     <section id="tab-settings" class="tab" hidden>
       <div class="card">
-        <h2>Greasing</h2>
-        <label class="field">Grease due after
+        <h2>When greasing is due</h2>
+        <label class="field">Default: due every
           <span class="inline"><input id="dueDays" type="number" min="1" max="60" inputmode="numeric"> days</span>
         </label>
+        <p class="hint">Set a different interval for each type of machine. "Hours" goes by SMU, so log the SMU when greasing (the ✓ button asks for it).</p>
+        <div id="ruleRows"></div>
         <label class="field">Work day starts at
           <select id="dayStart"></select>
         </label>
@@ -75,13 +107,20 @@
         <button id="unitsSave" class="btn primary wide">Save machines</button>
       </div>
       <div class="card">
+        <h2>Crew handover</h2>
+        <p class="hint">Day and night crew on two phones: send your log to the other phone (WhatsApp, email, Drive). They tap "Load the other crew's log" and pick the file. Ticks, fuel, problems and deletions are merged in, and nothing of theirs is lost.</p>
+        <button id="handoverSend" class="btn primary wide">📤 Send my log to the other crew</button>
+        <button id="handoverLoad" class="btn wide">📥 Load the other crew's log</button>
+        <p id="handoverInfo" class="hint"></p>
+      </div>
+      <div class="card">
         <h2>Backup</h2>
         <p id="backupInfo" class="hint"></p>
         <button id="backupBtn" class="btn wide">Back up now</button>
         <button id="csvBtn" class="btn wide">Export spreadsheet (CSV)</button>
         <button id="restoreBtn" class="btn wide">Restore from backup</button>
-        <input id="restoreFile" type="file" accept=".json,application/json" hidden>
       </div>
+      <input id="dataFile" type="file" accept=".json,application/json" hidden>
       <p class="hint center" id="versionLine"></p>
     </section>
   </main>
@@ -93,7 +132,7 @@
     <button data-tab="settings"><span>⚙️</span>Settings</button>
   </nav>
 
-  <!-- Machine details / log entry -->
+  <!-- Machine details / full entry -->
   <dialog id="unitDlg">
     <form method="dialog" id="entryForm">
       <div class="dlghead">
@@ -101,6 +140,7 @@
         <button value="cancel" formnovalidate class="btn icon" aria-label="Close">✕</button>
       </div>
       <p id="dlgStatus" class="status-line"></p>
+      <div id="dlgIssues"></div>
       <input type="hidden" id="fEditId">
       <label class="check big"><input type="checkbox" id="fGreased"> Greased</label>
       <div class="grid2">
@@ -113,6 +153,15 @@
       <div class="grid3" id="oilFields"></div>
       <label class="check"><input type="checkbox" id="fFob"> New fob needed</label>
       <label class="field">Notes<input id="fNotes" type="text" maxlength="200"></label>
+      <div class="problem" id="problemBox">
+        <label class="field">⚠ Problem to fix (goes on the Needs attention list)<input id="fProblem" type="text" maxlength="200" placeholder="e.g. grease line broken, leak at boom"></label>
+        <div class="photo-row">
+          <button type="button" id="fPhotoBtn" class="btn">📷 Add photo</button>
+          <img id="fPhotoPrev" alt="" hidden>
+          <button type="button" id="fPhotoDel" class="btn" hidden>Remove photo</button>
+        </div>
+        <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
+      </div>
       <div class="row-btns">
         <button value="save" class="btn primary" id="fSave">Save</button>
         <button value="cancel" formnovalidate class="btn">Cancel</button>
@@ -122,13 +171,68 @@
     </form>
   </dialog>
 
+  <!-- Quick fuel / grease with SMU -->
+  <dialog id="numDlg">
+    <form method="dialog">
+      <h2 id="nTitle"></h2>
+      <p id="nHint" class="hint"></p>
+      <label class="field" id="nDieselWrap">Diesel (L)<input id="nDiesel" type="number" step="1" inputmode="decimal"></label>
+      <label class="field">SMU (hours)<input id="nSmu" type="number" step="0.1" inputmode="decimal"></label>
+      <label class="check" id="nGreasedWrap"><input type="checkbox" id="nGreased"> Also greased</label>
+      <div class="row-btns">
+        <button value="save" class="btn primary" id="nSave">Save</button>
+        <button value="skip" class="btn" id="nSkip">Skip SMU</button>
+        <button value="cancel" class="btn">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Needs attention -->
+  <dialog id="attnDlg">
+    <form method="dialog">
+      <div class="dlghead">
+        <h2>Needs attention</h2>
+        <button value="cancel" class="btn icon" aria-label="Close">✕</button>
+      </div>
+      <div class="chips" id="attnChips">
+        <button type="button" data-attn="open">Open</button>
+        <button type="button" data-attn="done">Fixed</button>
+      </div>
+      <div id="attnList"></div>
+    </form>
+  </dialog>
+
+  <!-- Pick my run -->
+  <dialog id="runDlg">
+    <form method="dialog">
+      <div class="dlghead">
+        <h2>My run</h2>
+        <button value="done" class="btn icon" aria-label="Close">✕</button>
+      </div>
+      <p class="hint">Tap the machines you're doing. The list stays until you change it.</p>
+      <div class="row-btns">
+        <button type="button" id="runAddDue" class="btn">+ All due</button>
+        <button type="button" id="runClear" class="btn">Clear</button>
+      </div>
+      <div id="runPick"></div>
+      <div class="row-btns"><button value="done" class="btn primary">Done</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="photoDlg">
+    <form method="dialog">
+      <img id="photoBig" alt="Problem photo">
+      <div class="row-btns"><button value="close" class="btn">Close</button></div>
+    </form>
+  </dialog>
+
   <dialog id="restoreDlg">
     <form method="dialog">
-      <h2>Restore backup?</h2>
+      <h2 id="restoreTitle">Restore backup?</h2>
       <div id="restoreBody"></div>
       <div class="row-btns">
         <button value="restore" class="btn primary" id="restoreOk">Restore</button>
-        <button value="cancel" formnovalidate class="btn">Cancel</button>
+        <button value="cancel" class="btn">Cancel</button>
       </div>
     </form>
   </dialog>

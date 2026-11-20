@@ -1,5 +1,5 @@
 // Offline cache. Bump VERSION whenever any app file changes so phones pick up the update.
-const VERSION = 'brad-grease-log-v1';
+const VERSION = 'brad-grease-log-v2';
 const FILES = [
   './', './index.html', './styles.css', './units.js', './app.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-192-maskable.png', './icons/icon-512-maskable.png'
