@@ -1,7 +1,7 @@
 // Brad's Grease Log: tick machines off as they're greased, log fuel and oil like the paper sheet.
 // Records live in localStorage; problem photos live in IndexedDB (too big for localStorage).
 'use strict';
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 const STORE_KEY = 'greaselog.v1';
 const OILS = ['10W', '15W40', '30W', '50W', '85/140', '60W'];
 // What each grade is for (shown on screen; data is still stored by grade).
@@ -37,7 +37,7 @@ function defaults() {
     shifts: {},  // workDay -> {shift, name, truck, tanks:[{loc,pump,litres}], meterStart, meterFinish, supervisor, message, comments}
     run: [],     // unit codes on "My run"
     deleted: [], // ids of deleted entries/issues, so a crew handover doesn't bring them back
-    settings: { dueDays: 7, dayStart: 6, sort: 'sheet', filter: 'all', rules: {} },
+    settings: { dueDays: 7, dayStart: 6, sort: 'sheet', filter: 'all', cat: 'all', rules: {} },
     lastBackup: null,
     lastHandover: null
   };
@@ -181,8 +181,27 @@ function renderUnits() {
   const q = norm($('search').value);
   const { filter, sort } = state.settings;
   const all = state.units.map((code, i) => ({ code, i, sum: sums[code], st: status(code, sums[code]) }));
+  // Category tabs (EX, DZ, TK...). A search looks through every category.
+  const cats = [...new Set(state.units.map(prefix))];
+  const inScope = (u) => filter !== 'run' || state.run.includes(u.code);
+  // Fall back to All if the chosen type is gone, or has nothing on My run.
+  if (state.settings.cat !== 'all' && !all.some((u) => prefix(u.code) === state.settings.cat && inScope(u))) state.settings.cat = 'all';
+  const cat = state.settings.cat;
+  const catBtn = (c, label, units) => {
+    const done = units.filter((u) => u.st.cls === 'today').length;
+    const due = units.filter((u) => u.st.cls === 'over').length;
+    return `<button role="tab" data-cat="${esc(c)}" class="${c === cat && !q ? 'on' : ''}" style="--c:${c === 'all' ? 'var(--ink)' : TYPE_COLOURS[c] || '#b8b8b8'}">
+      ${esc(label)}<small>${done}/${units.length}</small>${due ? `<em>${due}</em>` : ''}</button>`;
+  };
+  $('catBar').innerHTML = catBtn('all', 'All', all.filter(inScope)) +
+    cats.map((c) => [c, all.filter((u) => prefix(u.code) === c && inScope(u))])
+      .filter(([c, units]) => units.length || c === cat).map(([c, units]) => catBtn(c, c, units)).join('');
+  const onBtn = $('catBar').querySelector('.on');
+  if (onBtn && catScroll) { onBtn.scrollIntoView({ inline: 'nearest', block: 'nearest' }); catScroll = false; }
+
   let list = all;
   if (q) list = list.filter((u) => norm(u.code).includes(q));
+  else if (cat !== 'all') list = list.filter((u) => prefix(u.code) === cat);
   if (filter === 'due') list = list.filter((u) => isDue(u.st));
   if (filter === 'today') list = list.filter((u) => u.st.cls === 'today');
   if (filter === 'run') list = list.filter((u) => state.run.includes(u.code));
@@ -250,6 +269,12 @@ $('alerts').addEventListener('click', (ev) => {
   if (ev.target.closest('[data-attn-open]')) openAttn();
 });
 $('search').addEventListener('input', renderUnits);
+let catScroll = true;
+$('catBar').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-cat]'); if (!b) return;
+  state.settings.cat = b.dataset.cat; $('search').value = ''; save(); renderUnits();
+  window.scrollTo(0, 0);
+});
 $('filterChips').addEventListener('click', (ev) => {
   const b = ev.target.closest('button'); if (!b) return;
   state.settings.filter = b.dataset.filter; save(); renderUnits();
@@ -939,6 +964,7 @@ let tab = 'units';
 function showTab(t) {
   tab = t;
   for (const s of document.querySelectorAll('.tab')) s.hidden = s.id !== 'tab-' + t;
+  $('catBar').hidden = t !== 'units';
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
   if (t === 'today') shiftDay = null;
   renderAll();

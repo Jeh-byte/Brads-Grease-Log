@@ -42,8 +42,8 @@ body {
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 12px);
   -webkit-tap-highlight-color: transparent;
 }
+.sticky-top { position: sticky; top: 0; z-index: 5; }
 .top {
-  position: sticky; top: 0; z-index: 5;
   background: var(--brand); color: var(--brand-ink);
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
 }
@@ -248,3 +248,24 @@ button.alert { width: 100%; border: 0; font: inherit; text-align: left; cursor: 
 }
 .rule select, .rule input { padding: 8px; }
 .rule input:disabled { opacity: .5; }
+
+/* ---- v1.3 category tabs ---- */
+.catbar {
+  display: flex; gap: 6px; overflow-x: auto;
+  padding: 10px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.catbar::-webkit-scrollbar { display: none; }
+.catbar button {
+  flex: none; position: relative; font: inherit; font-weight: 800; font-size: 16px; color: var(--ink);
+  background: var(--card); border: 1px solid var(--line); border-bottom: 4px solid var(--c);
+  border-radius: 10px; padding: 6px 12px; min-height: 48px; display: flex; flex-direction: column; align-items: center; line-height: 1.15;
+}
+.catbar button small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.catbar button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); border-bottom-color: var(--c); }
+.catbar button.on small { color: var(--bg); opacity: .8; }
+.catbar em {
+  position: absolute; top: -6px; right: -4px; font-style: normal; font-size: 11px; font-weight: 800;
+  background: var(--over); color: #fff; border-radius: 999px; min-width: 18px; height: 18px; padding: 0 5px;
+  display: flex; align-items: center; justify-content: center;
+}
