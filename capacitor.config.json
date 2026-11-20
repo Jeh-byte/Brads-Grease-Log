@@ -1,0 +1,6 @@
+{
+  "appId": "io.github.jehbyte.bradgreaselog",
+  "appName": "Brad's Grease Log",
+  "webDir": "www",
+  "loggingBehavior": "production"
+}

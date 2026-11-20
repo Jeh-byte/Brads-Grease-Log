@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#c2410c">
+  <title>Brad's Grease Log</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Grease Log</h1>
+      <p id="topSub" class="sub"></p>
+    </div>
+  </header>
+
+  <main>
+    <!-- Machines -->
+    <section id="tab-units" class="tab">
+      <div id="alerts"></div>
+      <div class="tools">
+        <input id="search" type="search" placeholder="Find a machine (e.g. TK23)" autocomplete="off" inputmode="search">
+        <div class="chips" id="filterChips">
+          <button data-filter="all">All</button>
+          <button data-filter="due">Due</button>
+          <button data-filter="today">Done today</button>
+        </div>
+        <div class="chips small" id="sortChips">
+          <span>Order:</span>
+          <button data-sort="sheet">Sheet</button>
+          <button data-sort="oldest">Longest since grease</button>
+        </div>
+      </div>
+      <div id="unitList"></div>
+    </section>
+
+    <!-- History -->
+    <section id="tab-history" class="tab" hidden>
+      <input id="histSearch" type="search" placeholder="Show one machine (e.g. DZ61)" autocomplete="off">
+      <div id="histList"></div>
+      <button id="histMore" class="btn wide" hidden>Show more</button>
+    </section>
+
+    <!-- Today / shift -->
+    <section id="tab-today" class="tab" hidden>
+      <div class="daynav">
+        <button id="dayPrev" class="btn icon" aria-label="Previous day">‹</button>
+        <div><strong id="dayTitle"></strong><div id="daySub" class="sub"></div></div>
+        <button id="dayNext" class="btn icon" aria-label="Next day">›</button>
+      </div>
+      <div id="dayTotals" class="totals"></div>
+      <p class="hint">Same columns as the paper sheet. Swipe the table sideways.</p>
+      <div class="tablewrap"><table id="dayTable"></table></div>
+    </section>
+
+    <!-- Settings -->
+    <section id="tab-settings" class="tab" hidden>
+      <div class="card">
+        <h2>Greasing</h2>
+        <label class="field">Grease due after
+          <span class="inline"><input id="dueDays" type="number" min="1" max="60" inputmode="numeric"> days</span>
+        </label>
+        <label class="field">Work day starts at
+          <select id="dayStart"></select>
+        </label>
+        <p class="hint">Night shift entries after midnight count toward the work day that started the evening before.</p>
+      </div>
+      <div class="card">
+        <h2>Machines</h2>
+        <p class="hint">One unit number per line, in sheet order. Add, remove or fix numbers, then Save. History for a machine stays even if you remove it.</p>
+        <textarea id="unitsText" rows="12" spellcheck="false" autocapitalize="characters"></textarea>
+        <button id="unitsSave" class="btn primary wide">Save machines</button>
+      </div>
+      <div class="card">
+        <h2>Backup</h2>
+        <p id="backupInfo" class="hint"></p>
+        <button id="backupBtn" class="btn wide">Back up now</button>
+        <button id="csvBtn" class="btn wide">Export spreadsheet (CSV)</button>
+        <button id="restoreBtn" class="btn wide">Restore from backup</button>
+        <input id="restoreFile" type="file" accept=".json,application/json" hidden>
+      </div>
+      <p class="hint center" id="versionLine"></p>
+    </section>
+  </main>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="units"><span>⛽</span>Machines</button>
+    <button data-tab="history"><span>🕘</span>History</button>
+    <button data-tab="today"><span>📋</span>Shift</button>
+    <button data-tab="settings"><span>⚙️</span>Settings</button>
+  </nav>
+
+  <!-- Machine details / log entry -->
+  <dialog id="unitDlg">
+    <form method="dialog" id="entryForm">
+      <div class="dlghead">
+        <h2 id="dlgTitle"></h2>
+        <button value="cancel" formnovalidate class="btn icon" aria-label="Close">✕</button>
+      </div>
+      <p id="dlgStatus" class="status-line"></p>
+      <input type="hidden" id="fEditId">
+      <label class="check big"><input type="checkbox" id="fGreased"> Greased</label>
+      <div class="grid2">
+        <label class="field">Date and time<input id="fAt" type="datetime-local" required></label>
+        <label class="field">SMU (hours)<input id="fSmu" type="number" step="0.1" inputmode="decimal"></label>
+        <label class="field">Diesel (L)<input id="fDiesel" type="number" step="1" inputmode="decimal"></label>
+        <label class="field">Coolant (L)<input id="fCoolant" type="number" step="0.5" inputmode="decimal"></label>
+      </div>
+      <p class="label">Oil (L)</p>
+      <div class="grid3" id="oilFields"></div>
+      <label class="check"><input type="checkbox" id="fFob"> New fob needed</label>
+      <label class="field">Notes<input id="fNotes" type="text" maxlength="200"></label>
+      <div class="row-btns">
+        <button value="save" class="btn primary" id="fSave">Save</button>
+        <button value="cancel" formnovalidate class="btn">Cancel</button>
+      </div>
+      <h3>History for this machine</h3>
+      <div id="dlgHist"></div>
+    </form>
+  </dialog>
+
+  <dialog id="restoreDlg">
+    <form method="dialog">
+      <h2>Restore backup?</h2>
+      <div id="restoreBody"></div>
+      <div class="row-btns">
+        <button value="restore" class="btn primary" id="restoreOk">Restore</button>
+        <button value="cancel" formnovalidate class="btn">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="units.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
