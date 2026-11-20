@@ -1,9 +1,12 @@
 // Brad's Grease Log: tick machines off as they're greased, log fuel and oil like the paper sheet.
 // Records live in localStorage; problem photos live in IndexedDB (too big for localStorage).
 'use strict';
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const STORE_KEY = 'greaselog.v1';
 const OILS = ['10W', '15W40', '30W', '50W', '85/140', '60W'];
+// What each grade is for (shown on screen; data is still stored by grade).
+const OIL_LABEL = { '10W': '10W Hyd', '15W40': '15W40 Engine' };
+const ol = (o) => OIL_LABEL[o] || o;
 const BACKUP_DAYS = 14;
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const CapApp = NATIVE ? window.Capacitor.registerPlugin('App') : null;
@@ -146,7 +149,7 @@ function entryText(e) {
   if (e.diesel != null) bits.push(`Diesel ${e.diesel} L`);
   if (e.smu != null) bits.push(`SMU ${e.smu}`);
   if (e.coolant != null) bits.push(`Coolant ${e.coolant} L`);
-  for (const o of OILS) if (e.oils && e.oils[o] != null) bits.push(`${o} ${e.oils[o]} L`);
+  for (const o of OILS) if (e.oils && e.oils[o] != null) bits.push(`${ol(o)} ${e.oils[o]} L`);
   if (e.fob) bits.push('New fob needed');
   if (e.notes) bits.push(`“${esc(e.notes)}”`);
   return bits.join(' · ') || 'Entry';
@@ -325,8 +328,10 @@ $('numDlg').addEventListener('close', () => {
 });
 
 // ---------- machine dialog: full entry like the paper sheet ----------
-$('oilFields').innerHTML = OILS.map((o, i) =>
-  `<label class="field">${o}<input id="fOil${i}" type="number" step="0.5" inputmode="decimal"></label>`).join('');
+const oilField = (o) => `<label class="field">${ol(o)}<input id="fOil${OILS.indexOf(o)}" type="number" step="0.5" inputmode="decimal"></label>`;
+$('oilFields').innerHTML = oilField('10W') +
+  '<label class="field">Coolant<input id="fCoolant" type="number" step="0.5" inputmode="decimal"></label>' +
+  OILS.slice(1).map(oilField).join('');
 let dlgCode = null;
 let pendingPhoto = null; // data URL waiting to be saved with a new problem
 
@@ -596,12 +601,12 @@ function renderShift() {
 
   const tot = [`${d.greased} greased`, `Diesel ${d.C} L`];
   if (d.coolant) tot.push(`Coolant ${d.coolant} L`);
-  for (const o of OILS) if (d.oils[o]) tot.push(`${o} ${d.oils[o]} L`);
+  for (const o of OILS) if (d.oils[o]) tot.push(`${ol(o)} ${d.oils[o]} L`);
   if (d.fobs) tot.push(`${d.fobs} new fob${d.fobs > 1 ? 's' : ''}`);
   $('dayTotals').innerHTML = d.list.length ? tot.map((t) => `<span>${esc(t)}</span>`).join('') : '';
   const v = (x) => (x == null ? '' : esc(x));
   $('dayTable').innerHTML = d.list.length
-    ? `<tr><th>Unit</th><th>SMU</th><th>Diesel</th><th>Time</th><th>New fob</th><th>Greased</th><th>Coolant</th>${OILS.map((o) => `<th>${o}</th>`).join('')}<th>Notes</th></tr>` +
+    ? `<tr><th>Unit</th><th>SMU</th><th>Diesel</th><th>Time</th><th>New fob</th><th>Greased</th><th>Coolant</th>${OILS.map((o) => `<th>${ol(o)}</th>`).join('')}<th>Notes</th></tr>` +
       d.list.map((e) => `<tr data-open="${esc(e.code)}" data-id="${e.id}"><td>${esc(e.code)}</td><td>${v(e.smu)}</td><td>${v(e.diesel)}</td><td>${esc(fmtTime(e.at))}</td>
         <td>${e.fob ? '✓' : ''}</td><td>${e.greased ? '✓' : ''}</td><td>${v(e.coolant)}</td>${OILS.map((o) => `<td>${v(e.oils?.[o])}</td>`).join('')}<td>${v(e.notes)}</td></tr>`).join('')
     : '<tr><td class="empty">Nothing logged this day.</td></tr>';
@@ -664,11 +669,11 @@ function shiftText(k) {
   L.push(`B Meter variance: ${d.B ?? '–'} L`, `C Total fuel issued: ${d.C} L`, `D Variance B−C: ${d.D ?? '–'} L`);
   L.push('', `Greased: ${d.greased} machines`);
   if (d.coolant) L.push(`Coolant: ${d.coolant} L`);
-  const oilBits = OILS.filter((o) => d.oils[o]).map((o) => `${o} ${d.oils[o]} L`);
+  const oilBits = OILS.filter((o) => d.oils[o]).map((o) => `${ol(o)} ${d.oils[o]} L`);
   if (oilBits.length) L.push(`Oil: ${oilBits.join(', ')}`);
   L.push('', 'Unit | SMU | Diesel | Time | Greased | other');
   for (const e of d.list) {
-    const other = [e.coolant != null && `coolant ${e.coolant}`, ...OILS.filter((o) => e.oils?.[o] != null).map((o) => `${o} ${e.oils[o]}`), e.fob && 'NEW FOB', e.notes].filter(Boolean).join(', ');
+    const other = [e.coolant != null && `coolant ${e.coolant}`, ...OILS.filter((o) => e.oils?.[o] != null).map((o) => `${ol(o)} ${e.oils[o]}`), e.fob && 'NEW FOB', e.notes].filter(Boolean).join(', ');
     L.push(`${e.code} | ${e.smu ?? ''} | ${e.diesel ?? ''} | ${fmtTime(e.at)} | ${e.greased ? '✓' : ''}${other ? ' | ' + other : ''}`);
   }
   const open = state.issues.filter((i) => !i.doneAt);
@@ -683,7 +688,7 @@ function shiftText(k) {
 function shiftCanvas(k) {
   const d = shiftData(k), sh = d.sh;
   const W = 1400, P = 30, RH = 38;
-  const cols = [['Unit', 140], ['SMU', 120], ['Diesel', 110], ['Time', 110], ['New fob', 90], ['Greased', 95], ['Coolant', 95], ...OILS.map((o) => [o, 78]), ['Notes', 0]];
+  const cols = [['Unit', 140], ['SMU', 120], ['Diesel', 110], ['Time', 110], ['New fob', 90], ['Greased', 95], ['Coolant', 95], ...OILS.map((o) => [ol(o), OIL_LABEL[o] ? 112 : 70]), ['Notes', 0]];
   const used = cols.reduce((t, c) => t + c[1], 0); cols[cols.length - 1][1] = W - 2 * P - used;
   const open = state.issues.filter((i) => !i.doneAt);
   const tanks = (sh.tanks || []).filter((t) => t.loc || t.pump || t.litres != null);
@@ -733,7 +738,7 @@ function shiftCanvas(k) {
   }
   if (!d.list.length) { font(17); g.textAlign = 'left'; g.fillText('Nothing logged this day.', P + 6, y + RH / 2); y += RH; }
   font(16, true); g.textAlign = 'left';
-  g.fillText(`Totals: ${d.greased} greased · Diesel ${d.C} L${d.coolant ? ' · Coolant ' + d.coolant + ' L' : ''}${OILS.filter((o) => d.oils[o]).map((o) => ` · ${o} ${d.oils[o]} L`).join('')}`, P, y + 18);
+  g.fillText(`Totals: ${d.greased} greased · Diesel ${d.C} L${d.coolant ? ' · Coolant ' + d.coolant + ' L' : ''}${OILS.filter((o) => d.oils[o]).map((o) => ` · ${ol(o)} ${d.oils[o]} L`).join('')}`, P, y + 18);
   y += 40;
   if (open.length) {
     font(18, true); g.fillText('Needs attention', P, y + RH / 2); y += RH;
@@ -885,7 +890,7 @@ async function exportCsv() {
       e.greased ? 'Yes' : '', e.coolant, ...OILS.map((o) => e.oils?.[o]), e.notes];
   });
   await saveFile(`grease-log-${localKey(new Date())}.csv`,
-    csv([['Work day', 'Date', 'Time', 'Unit', 'SMU', 'Diesel (L)', 'New fob needed', 'Greased', 'Coolant (L)', ...OILS.map((o) => `${o} (L)`), 'Notes'], ...rows]), 'text/csv');
+    csv([['Work day', 'Date', 'Time', 'Unit', 'SMU', 'Diesel (L)', 'New fob needed', 'Greased', 'Coolant (L)', ...OILS.map((o) => `${ol(o)} (L)`), 'Notes'], ...rows]), 'text/csv');
 }
 function guard(fn) { return async () => { try { await fn(); } catch (err) { toast(`Something went wrong: ${err?.message || err}`); } }; }
 $('backupBtn').addEventListener('click', guard(backupNow));
