@@ -269,3 +269,9 @@ button.alert { width: 100%; border: 0; font: inherit; text-align: left; cursor: 
   background: var(--over); color: #fff; border-radius: 999px; min-width: 18px; height: 18px; padding: 0 5px;
   display: flex; align-items: center; justify-content: center;
 }
+
+/* Faulty overflow valve: red tick */
+.check.red { color: var(--over); }
+.check.red input { accent-color: var(--over); }
+.grid2.ticks .check { margin: 4px 0; }
+.what .bad, td.bad { color: var(--over); font-weight: 700; }

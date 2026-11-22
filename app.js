@@ -1,12 +1,17 @@
 // Brad's Grease Log: tick machines off as they're greased, log fuel and oil like the paper sheet.
 // Records live in localStorage; problem photos live in IndexedDB (too big for localStorage).
 'use strict';
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 const STORE_KEY = 'greaselog.v1';
 const OILS = ['10W', '15W40', '30W', '50W', '85/140', '60W'];
 // What each grade is for (shown on screen; data is still stored by grade).
 const OIL_LABEL = { '10W': '10W Hyd', '15W40': '15W40 Engine' };
 const ol = (o) => OIL_LABEL[o] || o;
+// Coolant and these grades are just ticked when added (stored as true); older entries may still hold litres.
+const TICK_OILS = ['10W', '15W40', '30W'];
+const LITRE_OILS = OILS.filter((o) => !TICK_OILS.includes(o));
+const amt = (v) => (v === true ? '✓' : v);           // table/CSV cell
+const amtText = (v) => (v === true ? 'added' : `${v} L`); // in a sentence
 const BACKUP_DAYS = 14;
 const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const CapApp = NATIVE ? window.Capacitor.registerPlugin('App') : null;
@@ -32,7 +37,7 @@ const round1 = (n) => Math.round(n * 10) / 10;
 function defaults() {
   return {
     units: window.SEED_UNITS.slice(),
-    entries: [], // {id, code, at (ISO), greased, smu, diesel, coolant, oils:{grade:L}, fob, notes}
+    entries: [], // {id, code, at (ISO), greased, smu, diesel, coolant (true or L), oils:{grade:true or L}, fob, overflow, notes}
     issues: [],  // {id, code, at, text, photo (bool), doneAt}
     shifts: {},  // workDay -> {shift, name, truck, tanks:[{loc,pump,litres}], meterStart, meterFinish, supervisor, message, comments}
     run: [],     // unit codes on "My run"
@@ -148,9 +153,10 @@ function entryText(e) {
   if (e.greased) bits.push('<span class="g">Greased</span>');
   if (e.diesel != null) bits.push(`Diesel ${e.diesel} L`);
   if (e.smu != null) bits.push(`SMU ${e.smu}`);
-  if (e.coolant != null) bits.push(`Coolant ${e.coolant} L`);
-  for (const o of OILS) if (e.oils && e.oils[o] != null) bits.push(`${ol(o)} ${e.oils[o]} L`);
+  if (e.coolant != null) bits.push(`Coolant ${amtText(e.coolant)}`);
+  for (const o of OILS) if (e.oils && e.oils[o] != null) bits.push(`${ol(o)} ${amtText(e.oils[o])}`);
   if (e.fob) bits.push('New fob needed');
+  if (e.overflow) bits.push('<span class="bad">Faulty overflow valve</span>');
   if (e.notes) bits.push(`“${esc(e.notes)}”`);
   return bits.join(' · ') || 'Entry';
 }
@@ -302,7 +308,7 @@ function quickTick(code) {
   const st = status(code, sum);
   if (st.cls === 'today' || (sum && sum.grease && workDay(sum.grease.at) === todayKey())) {
     const e = sum.grease;
-    const onlyGrease = e.diesel == null && e.smu == null && e.coolant == null && !e.fob && !e.notes && !Object.keys(e.oils || {}).length;
+    const onlyGrease = e.diesel == null && e.smu == null && e.coolant == null && !e.fob && !e.overflow && !e.notes && !Object.keys(e.oils || {}).length;
     if (!confirm(`${code} was already ticked as greased today at ${fmtTime(e.at)}.\n\nRemove that tick?`)) return;
     if (onlyGrease) { state.entries = state.entries.filter((x) => x.id !== e.id); forget(e.id); }
     else e.greased = false;
@@ -353,10 +359,13 @@ $('numDlg').addEventListener('close', () => {
 });
 
 // ---------- machine dialog: full entry like the paper sheet ----------
-const oilField = (o) => `<label class="field">${ol(o)}<input id="fOil${OILS.indexOf(o)}" type="number" step="0.5" inputmode="decimal"></label>`;
-$('oilFields').innerHTML = oilField('10W') +
-  '<label class="field">Coolant<input id="fCoolant" type="number" step="0.5" inputmode="decimal"></label>' +
-  OILS.slice(1).map(oilField).join('');
+const tickField = (id, label) => `<label class="check"><input type="checkbox" id="${id}"> ${label}</label>`;
+$('addedFields').innerHTML = tickField('fCoolant', 'Coolant added') +
+  TICK_OILS.map((o) => tickField('fOil' + OILS.indexOf(o), `${ol(o)} added`)).join('');
+$('oilFields').innerHTML = LITRE_OILS.map((o) =>
+  `<label class="field">${ol(o)}<input id="fOil${OILS.indexOf(o)}" type="number" step="0.5" inputmode="decimal"></label>`).join('');
+// Ticked = keep the old litres if the entry already had them, otherwise just "added".
+const tickVal = (checked, old) => (!checked ? null : typeof old === 'number' ? old : true);
 let dlgCode = null;
 let pendingPhoto = null; // data URL waiting to be saved with a new problem
 
@@ -375,9 +384,13 @@ function openUnit(code, editId) {
   $('fSmu').value = e?.smu ?? '';
   $('fSmu').placeholder = sum?.smu ? `last ${sum.smu.smu}` : '';
   $('fDiesel').value = e?.diesel ?? '';
-  $('fCoolant').value = e?.coolant ?? '';
-  OILS.forEach((o, i) => { $('fOil' + i).value = e?.oils?.[o] ?? ''; });
+  $('fCoolant').checked = e?.coolant != null;
+  OILS.forEach((o, i) => {
+    if (TICK_OILS.includes(o)) $('fOil' + i).checked = e?.oils?.[o] != null;
+    else $('fOil' + i).value = e?.oils?.[o] ?? '';
+  });
   $('fFob').checked = !!e?.fob;
+  $('fOverflow').checked = !!e?.overflow;
   $('fNotes').value = e?.notes ?? '';
   $('fProblem').value = '';
   setPendingPhoto(null);
@@ -449,17 +462,21 @@ $('fPhoto').addEventListener('change', async () => {
 $('unitDlg').addEventListener('close', async () => {
   if ($('unitDlg').returnValue !== 'save') return;
   const oils = {};
-  OILS.forEach((o, i) => { const v = num($('fOil' + i).value); if (v != null) oils[o] = v; });
+  const editing = $('fEditId').value ? state.entries.find((x) => x.id === $('fEditId').value) : null;
+  OILS.forEach((o, i) => {
+    const v = TICK_OILS.includes(o) ? tickVal($('fOil' + i).checked, editing?.oils?.[o]) : num($('fOil' + i).value);
+    if (v != null) oils[o] = v;
+  });
   const at = $('fAt').value ? new Date($('fAt').value) : new Date();
   const rec = {
     code: dlgCode, at: (isNaN(at) ? new Date() : at).toISOString(), greased: $('fGreased').checked,
-    smu: num($('fSmu').value), diesel: num($('fDiesel').value), coolant: num($('fCoolant').value),
-    oils, fob: $('fFob').checked, notes: $('fNotes').value.trim()
+    smu: num($('fSmu').value), diesel: num($('fDiesel').value), coolant: tickVal($('fCoolant').checked, editing?.coolant),
+    oils, fob: $('fFob').checked, overflow: $('fOverflow').checked, notes: $('fNotes').value.trim()
   };
   const problem = $('fProblem').value.trim();
   const editId = $('fEditId').value;
   const old = editId ? state.entries.find((x) => x.id === editId) : null;
-  const empty = !rec.greased && rec.smu == null && rec.diesel == null && rec.coolant == null && !Object.keys(oils).length && !rec.fob && !rec.notes;
+  const empty = !rec.greased && rec.smu == null && rec.diesel == null && rec.coolant == null && !Object.keys(oils).length && !rec.fob && !rec.overflow && !rec.notes;
   if (!editId && empty && !problem && !pendingPhoto) { toast('Nothing filled in, so nothing saved'); return; }
   const w = smuWarning(dlgCode, rec.smu, rec.at, editId);
   if (w && (!old || old.smu !== rec.smu) && !confirm(`Check the SMU:\n\n${w}\n\nSave it anyway?`)) { $('unitDlg').showModal(); return; }
@@ -468,6 +485,8 @@ $('unitDlg').addEventListener('close', async () => {
   const newIssues = [];
   if (rec.fob && !(old && old.fob) && !state.issues.some((i) => i.code === dlgCode && !i.doneAt && i.fob))
     newIssues.push({ id: uid(), code: dlgCode, at: rec.at, text: 'New fob needed', fob: true, photo: false, doneAt: null });
+  if (rec.overflow && !(old && old.overflow) && !state.issues.some((i) => i.code === dlgCode && !i.doneAt && i.overflow))
+    newIssues.push({ id: uid(), code: dlgCode, at: rec.at, text: 'Faulty overflow valve', overflow: true, photo: false, doneAt: null });
   if (problem || pendingPhoto) {
     const iss = { id: uid(), code: dlgCode, at: rec.at, text: problem || 'See photo', photo: !!pendingPhoto, doneAt: null };
     if (pendingPhoto) {
@@ -598,9 +617,21 @@ function shiftData(k) {
   const B = sh.meterStart != null && sh.meterFinish != null ? round1(sh.meterFinish - sh.meterStart) : null;
   const C = sum((e) => e.diesel);
   const D = B != null ? round1(B - C) : null;
-  const oils = Object.fromEntries(OILS.map((o) => [o, sum((e) => e.oils?.[o])]));
-  return { sh, list, A, B, C, D, coolant: sum((e) => e.coolant), oils,
-    greased: new Set(list.filter((e) => e.greased).map((e) => e.code)).size, fobs: list.filter((e) => e.fob).length };
+  // Ticked items are counted (machines topped up); any old litre amounts are summed.
+  const litres = (v) => (typeof v === 'number' ? v : 0);
+  const tally = (get) => ({ n: list.filter((e) => get(e) != null).length, L: sum((e) => litres(get(e))) });
+  const oils = Object.fromEntries(OILS.map((o) => [o, tally((e) => e.oils?.[o])]));
+  return { sh, list, A, B, C, D, coolant: tally((e) => e.coolant), oils,
+    greased: new Set(list.filter((e) => e.greased).map((e) => e.code)).size, fobs: list.filter((e) => e.fob).length,
+    overflows: list.filter((e) => e.overflow).length };
+}
+// "Coolant added x3" for ticks, "50W 4 L" for litres.
+function tallyText(name, t) {
+  if (!t.n) return '';
+  return t.L ? `${name} ${t.L} L` : `${name} added ×${t.n}`;
+}
+function totalsList(d) {
+  return [tallyText('Coolant', d.coolant), ...OILS.map((o) => tallyText(ol(o), d.oils[o]))].filter(Boolean);
 }
 function renderShift() {
   const k = curShiftKey();
@@ -625,15 +656,15 @@ function renderShift() {
   renderCalc(d);
 
   const tot = [`${d.greased} greased`, `Diesel ${d.C} L`];
-  if (d.coolant) tot.push(`Coolant ${d.coolant} L`);
-  for (const o of OILS) if (d.oils[o]) tot.push(`${ol(o)} ${d.oils[o]} L`);
+  tot.push(...totalsList(d));
   if (d.fobs) tot.push(`${d.fobs} new fob${d.fobs > 1 ? 's' : ''}`);
+  if (d.overflows) tot.push(`${d.overflows} faulty overflow valve${d.overflows > 1 ? 's' : ''}`);
   $('dayTotals').innerHTML = d.list.length ? tot.map((t) => `<span>${esc(t)}</span>`).join('') : '';
   const v = (x) => (x == null ? '' : esc(x));
   $('dayTable').innerHTML = d.list.length
-    ? `<tr><th>Unit</th><th>SMU</th><th>Diesel</th><th>Time</th><th>New fob</th><th>Greased</th><th>Coolant</th>${OILS.map((o) => `<th>${ol(o)}</th>`).join('')}<th>Notes</th></tr>` +
+    ? `<tr><th>Unit</th><th>SMU</th><th>Diesel</th><th>Time</th><th>New fob</th><th>Greased</th><th>Coolant</th>${OILS.map((o) => `<th>${ol(o)}</th>`).join('')}<th>Overflow valve faulty</th><th>Notes</th></tr>` +
       d.list.map((e) => `<tr data-open="${esc(e.code)}" data-id="${e.id}"><td>${esc(e.code)}</td><td>${v(e.smu)}</td><td>${v(e.diesel)}</td><td>${esc(fmtTime(e.at))}</td>
-        <td>${e.fob ? '✓' : ''}</td><td>${e.greased ? '✓' : ''}</td><td>${v(e.coolant)}</td>${OILS.map((o) => `<td>${v(e.oils?.[o])}</td>`).join('')}<td>${v(e.notes)}</td></tr>`).join('')
+        <td>${e.fob ? '✓' : ''}</td><td>${e.greased ? '✓' : ''}</td><td>${v(amt(e.coolant))}</td>${OILS.map((o) => `<td>${v(amt(e.oils?.[o]))}</td>`).join('')}<td class="bad">${e.overflow ? '✓' : ''}</td><td>${v(e.notes)}</td></tr>`).join('')
     : '<tr><td class="empty">Nothing logged this day.</td></tr>';
 }
 function renderCalc(d) {
@@ -693,12 +724,12 @@ function shiftText(k) {
   if (sh.meterStart != null || sh.meterFinish != null) L.push(`Bulk meter: ${sh.meterStart ?? '?'} → ${sh.meterFinish ?? '?'}`);
   L.push(`B Meter variance: ${d.B ?? '–'} L`, `C Total fuel issued: ${d.C} L`, `D Variance B−C: ${d.D ?? '–'} L`);
   L.push('', `Greased: ${d.greased} machines`);
-  if (d.coolant) L.push(`Coolant: ${d.coolant} L`);
-  const oilBits = OILS.filter((o) => d.oils[o]).map((o) => `${ol(o)} ${d.oils[o]} L`);
-  if (oilBits.length) L.push(`Oil: ${oilBits.join(', ')}`);
+  const added = totalsList(d);
+  if (added.length) L.push(`Coolant/oil: ${added.join(', ')}`);
+  if (d.overflows) L.push(`❗ Faulty overflow valves: ${d.overflows}`);
   L.push('', 'Unit | SMU | Diesel | Time | Greased | other');
   for (const e of d.list) {
-    const other = [e.coolant != null && `coolant ${e.coolant}`, ...OILS.filter((o) => e.oils?.[o] != null).map((o) => `${ol(o)} ${e.oils[o]}`), e.fob && 'NEW FOB', e.notes].filter(Boolean).join(', ');
+    const other = [e.coolant != null && `coolant ${amtText(e.coolant)}`, ...OILS.filter((o) => e.oils?.[o] != null).map((o) => `${ol(o)} ${amtText(e.oils[o])}`), e.fob && 'NEW FOB', e.overflow && '❗ FAULTY OVERFLOW VALVE', e.notes].filter(Boolean).join(', ');
     L.push(`${e.code} | ${e.smu ?? ''} | ${e.diesel ?? ''} | ${fmtTime(e.at)} | ${e.greased ? '✓' : ''}${other ? ' | ' + other : ''}`);
   }
   const open = state.issues.filter((i) => !i.doneAt);
@@ -713,7 +744,7 @@ function shiftText(k) {
 function shiftCanvas(k) {
   const d = shiftData(k), sh = d.sh;
   const W = 1400, P = 30, RH = 38;
-  const cols = [['Unit', 140], ['SMU', 120], ['Diesel', 110], ['Time', 110], ['New fob', 90], ['Greased', 95], ['Coolant', 95], ...OILS.map((o) => [ol(o), OIL_LABEL[o] ? 112 : 70]), ['Notes', 0]];
+  const cols = [['Unit', 140], ['SMU', 120], ['Diesel', 110], ['Time', 110], ['New fob', 90], ['Greased', 95], ['Coolant', 95], ...OILS.map((o) => [ol(o), OIL_LABEL[o] ? 112 : 70]), ['Overflow', 90], ['Notes', 0]];
   const used = cols.reduce((t, c) => t + c[1], 0); cols[cols.length - 1][1] = W - 2 * P - used;
   const open = state.issues.filter((i) => !i.doneAt);
   const tanks = (sh.tanks || []).filter((t) => t.loc || t.pump || t.litres != null);
@@ -757,13 +788,21 @@ function shiftCanvas(k) {
   y += RH;
   for (const e of d.list) {
     x = P;
-    const vals = [e.code, e.smu, e.diesel, fmtTime(e.at), e.fob ? '✓' : '', e.greased ? '✓' : '', e.coolant, ...OILS.map((o) => e.oils?.[o]), e.notes];
-    vals.forEach((s, i) => { const [, w] = cols[i]; box(x, y, w, RH, i === 0 ? colour(e.code) + '55' : i === 4 ? '#f6d5c8' : null); font(17, i === 0); text(s, x, y + RH / 2, w, i === cols.length - 1 ? 'left' : 'center'); x += w; });
+    const vals = [e.code, e.smu, e.diesel, fmtTime(e.at), e.fob ? '✓' : '', e.greased ? '✓' : '', amt(e.coolant), ...OILS.map((o) => amt(e.oils?.[o])), e.overflow ? '✓' : '', e.notes];
+    const ovf = cols.length - 2;
+    vals.forEach((s, i) => {
+      const [, w] = cols[i];
+      const red = i === ovf && e.overflow;
+      box(x, y, w, RH, i === 0 ? colour(e.code) + '55' : i === 4 ? '#f6d5c8' : red ? '#fde2e2' : null);
+      font(17, i === 0 || red);
+      if (red) g.fillStyle = '#b91c1c';
+      text(s, x, y + RH / 2, w, i === cols.length - 1 ? 'left' : 'center'); g.fillStyle = '#111'; x += w;
+    });
     y += RH;
   }
   if (!d.list.length) { font(17); g.textAlign = 'left'; g.fillText('Nothing logged this day.', P + 6, y + RH / 2); y += RH; }
   font(16, true); g.textAlign = 'left';
-  g.fillText(`Totals: ${d.greased} greased · Diesel ${d.C} L${d.coolant ? ' · Coolant ' + d.coolant + ' L' : ''}${OILS.filter((o) => d.oils[o]).map((o) => ` · ${ol(o)} ${d.oils[o]} L`).join('')}`, P, y + 18);
+  g.fillText([`Totals: ${d.greased} greased`, `Diesel ${d.C} L`, ...totalsList(d), d.overflows ? `${d.overflows} faulty overflow valve${d.overflows > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · '), P, y + 18);
   y += 40;
   if (open.length) {
     font(18, true); g.fillText('Needs attention', P, y + RH / 2); y += RH;
@@ -912,10 +951,10 @@ async function exportCsv() {
   const rows = state.entries.slice().sort((a, b) => a.at.localeCompare(b.at)).map((e) => {
     const d = new Date(e.at);
     return [workDay(e.at), localKey(d), `${pad(d.getHours())}:${pad(d.getMinutes())}`, e.code, e.smu, e.diesel, e.fob ? 'Yes' : '',
-      e.greased ? 'Yes' : '', e.coolant, ...OILS.map((o) => e.oils?.[o]), e.notes];
+      e.greased ? 'Yes' : '', e.coolant === true ? 'Yes' : e.coolant, ...OILS.map((o) => (e.oils?.[o] === true ? 'Yes' : e.oils?.[o])), e.overflow ? 'Yes' : '', e.notes];
   });
   await saveFile(`grease-log-${localKey(new Date())}.csv`,
-    csv([['Work day', 'Date', 'Time', 'Unit', 'SMU', 'Diesel (L)', 'New fob needed', 'Greased', 'Coolant (L)', ...OILS.map((o) => `${ol(o)} (L)`), 'Notes'], ...rows]), 'text/csv');
+    csv([['Work day', 'Date', 'Time', 'Unit', 'SMU', 'Diesel (L)', 'New fob needed', 'Greased', 'Coolant added', ...OILS.map((o) => (TICK_OILS.includes(o) ? `${ol(o)} added` : `${ol(o)} (L)`)), 'Faulty overflow valve', 'Notes'], ...rows]), 'text/csv');
 }
 function guard(fn) { return async () => { try { await fn(); } catch (err) { toast(`Something went wrong: ${err?.message || err}`); } }; }
 $('backupBtn').addEventListener('click', guard(backupNow));

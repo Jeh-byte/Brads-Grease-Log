@@ -151,9 +151,12 @@
         <label class="field">SMU (hours)<input id="fSmu" type="number" step="0.1" inputmode="decimal"></label>
         <label class="field">Diesel (L)<input id="fDiesel" type="number" step="1" inputmode="decimal"></label>
       </div>
-      <p class="label">Oil and coolant (L)</p>
+      <p class="label">Topped up (just tick it)</p>
+      <div class="grid2 ticks" id="addedFields"></div>
+      <p class="label">Other oils (L)</p>
       <div class="grid3" id="oilFields"></div>
       <label class="check"><input type="checkbox" id="fFob"> New fob needed</label>
+      <label class="check red"><input type="checkbox" id="fOverflow"> Faulty overflow valve</label>
       <label class="field">Notes<input id="fNotes" type="text" maxlength="200"></label>
       <div class="problem" id="problemBox">
         <label class="field">⚠ Problem to fix (goes on the Needs attention list)<input id="fProblem" type="text" maxlength="200" placeholder="e.g. grease line broken, leak at boom"></label>
